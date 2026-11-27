@@ -10,16 +10,16 @@
   const statusNames = { enabled: "启用", disabled: "停用", deleted: "已删除" };
   const sourceNames = { ...model.sources, seed: "初始样本", none: "尚未入组" };
   const joinNames = model.tagJoins;
-  const conditionDimensions = {
-    tags: "店铺标签", types: "店铺类型", recharge: "累计充值金额", categories: "主营大类", selfOperated: "是否自营"
-  };
+  const conditionDimensions = { ...model.conditionTypes, selfOperated: "是否自营" };
   const fixedConditionValues = { types: model.types, categories: model.categories, selfOperated: ["是", "否"] };
   const isEnabled = (group) => group.status === "enabled";
   const switchText = (value) => value ? "开启" : "关闭";
   const time = (value) => `<time class="time" datetime="${esc(value)}">${model.formatTime(value)}</time>`;
   const ruleText = (rule) => model.describeRule(rule).join(" 且 ");
-  const firstTagRelation = (rule) => rule.tagGroups.length
-    ? `<p>首个标签组关系 · ${joinNames[rule.tagGroups[0].join ?? "AND"]}</p>` : "";
+  const firstConditionRelation = (rule) => {
+    const [first] = model.ruleConditions(rule);
+    return first ? `<p>首条条件关系 · ${joinNames[first.join]}</p>` : "";
+  };
   const statusBadge = (status) => `<span class="badge badge-${status === "enabled" ? "active" : "inactive"}">${statusNames[status]}</span>`;
   const option = (value, label, current) => `<option value="${esc(value)}"${value === current ? " selected" : ""}>${esc(label)}</option>`;
   const options = (map, current) => Object.entries(map).map(([value, label]) => option(value, label, current)).join("");
@@ -114,6 +114,7 @@
     const { id, name, note, policy, status } = group;
     const summary = counts(group);
     const pending = pendingStatus(group);
+    const busy = scanning.has(id);
     const rowLink = (label, tab, kind = "button-text row-link") => button(label, "detail", { id, tab, kind });
     const rowAction = (label, action, disabled = false, kind = "button-text") => button(label, action, {
       id, kind, disabled, attributes: disabled ? 'title="圈组已停用，启用后可维护"' : ""
@@ -135,7 +136,9 @@
       <td><p>创建　${esc(group.createdBy)}<br>${time(group.createdAt)}</p>
         <p>更新　${esc(group.updatedBy)}<br>${time(group.updatedAt)}</p></td>
       <td><div class="row-actions">
-        ${rowAction("编辑", "edit", !isEnabled(group))}${rowAction("配置店铺", "configure", !isEnabled(group))}
+        ${busy ? button("更新中…", "manual-scan", { id, kind: "button-text", disabled: true })
+          : rowAction("手动更新", "manual-scan", !isEnabled(group))}
+        ${rowAction("编辑", "edit", !isEnabled(group))}
         ${rowAction("修改历史", "config-history")}${rowAction("店铺进出历史", "member-history")}
         ${rowAction(isEnabled(group) ? "停用" : "启用", isEnabled(group) ? "disable" : "enable")}
         ${rowAction("删除", "delete", false, "button-delete")}
@@ -196,7 +199,6 @@
           <div class="actions"><span class="record-id">${id}</span>${statusBadge(group.status)}</div></div>
         <div class="actions">
           ${button("返回列表", "list")}
-          ${button("配置店铺", "configure", { id, disabled: paused })}
           ${button(busy ? "扫描中…" : "模拟扫描", "scan", { id, disabled: paused || busy, kind: "button-primary" })}
         </div>
       </div>
@@ -296,7 +298,7 @@
     header.indeterminate = selected.size > 0 && !header.checked;
     const prev = $("batch-action");
     $("batch-bar").innerHTML = `<span class="count" role="status">已选 ${selected.size} 家</span>${tab === "members"
-      ? '<span class="muted">批量操作在候选页签进行，人工增删请使用配置店铺。</span>'
+      ? '<span class="muted">批量操作在候选页签进行。</span>'
       : button(tab === "add" ? "批量加入" : "批量剔除", "batch", {
         kind: "button-primary", disabled: !selected.size || !isEnabled(group) || scanning.has(group.id),
         attributes: 'id="batch-action"'
@@ -320,25 +322,35 @@
     renderDetail(() => $("detail-view").querySelector(`.tab-button[data-tab="${tab}"]`));
   }
 
-  async function simulateScan(group, fail) {
+  async function simulateScan(group, action) {
     if (scanning.has(group.id) || !isEnabled(group)) return;
+    const fail = action === "fail-scan";
+    const manual = action === "manual-scan";
     const version = group.policy.ruleVersion;
     scanning.add(group.id);
-    detail.selected.clear();
-    Object.assign(detail, { feedback: "正在模拟全量扫描…", feedbackError: false });
-    renderDetail();
+    if (detail?.group === group) {
+      detail.selected.clear();
+      Object.assign(detail, { feedback: "正在模拟全量扫描…", feedbackError: false });
+      renderDetail();
+    } else if (!detail) {
+      $("list-feedback").textContent = `${group.name} · 正在手动更新…`;
+      renderList();
+    }
     await new Promise((resolve) => setTimeout(resolve, 350));
     scanning.delete(group.id);
     const result = version === group.policy.ruleVersion && model.scan(state, group, { fail });
     const message = !result ? "圈组规则或状态已变化，请重新发起扫描。" : fail
       ? "模拟扫描失败，成员、历史与上次成功结果已保留。"
-      : `模拟扫描完成 · 加入 ${result.summary.added} 家，剔除 ${result.summary.removed} 家。`;
+      : `${manual ? "手动更新" : "模拟扫描"}完成 · 加入 ${result.summary.added} 家，剔除 ${result.summary.removed} 家。`;
     if (detail?.group === group) {
+      detail.selected.clear();
       Object.assign(detail, { feedback: message, feedbackError: fail || !result });
       renderDetail(fail ? "fail-scan" : "scan");
     } else if (!detail) {
+      const restoreUpdateFocus = manual && document.activeElement === document.body;
       renderList();
       $("list-feedback").textContent = `${group.name} · ${message}`;
+      if (restoreUpdateFocus) restoreFocus(group, action).focus();
     }
   }
 
@@ -394,35 +406,55 @@
 
   function readDraft(form) {
     const read = (name) => editorInput(form, name).value;
-    const checked = (name) => [...form.querySelectorAll(`[name="${name}"]:checked`)].map((input) => input.value);
     return {
-      name: read("name"), note: read("note"), min: read("min"), max: read("max"),
-      interval: read("interval"), selfOperated: read("selfOperated"),
-      autoAdd: editorInput(form, "autoAdd").checked, autoRemove: editorInput(form, "autoRemove").checked,
-      typeSet: checked("typeSet"), categorySet: checked("categorySet"),
-      tagGroups: [...form.querySelectorAll(".tag-row")].map((row) => ({
-        input: row.querySelector("input").value, join: row.querySelector("select").value
+      name: read("name"), note: read("note"), interval: read("interval"),
+      conditions: [...form.querySelectorAll(".condition-row")].map((row, index) => ({
+        join: read(`join-${index}`), type: read(`type-${index}`),
+        input: row.querySelector("input[data-tags], input[data-shop-ids]")?.value ?? "",
+        values: [...row.querySelectorAll('input[type="checkbox"]:checked')].map((input) => input.value),
+        value: row.querySelector("select[data-self-operated]")?.value
       }))
     };
   }
 
-  function tagEditor(rows) {
-    return rows.map(({ input, join }, index) => `<div class="tag-row">
-      <label class="field tag-join">组间关系
-        <select name="join-${index}" aria-label="标签组 ${index + 1} 的组间关系" aria-describedby="error-join-${index}">
-          ${options(joinNames, join ?? "AND")}</select>
-        ${fieldError(`join-${index}`)}</label>
-      <label class="field">标签组 ${index + 1} · 命中任一
-        <input name="tag-${index}" value="${esc(input)}" placeholder="标签 ID，以空格或逗号分隔" aria-describedby="error-tag-${index}">
-        <span class="inline-error" id="error-tag-${index}"></span></label>
-      ${button("移除", "remove-tag", { attributes: `data-index="${index}" aria-label="移除标签组 ${index + 1}"` })}
-    </div>`).join("");
+  function conditionEditor(rows) {
+    return rows.map((row, index) => {
+      const legacy = row.type === "selfOperated";
+      return `<div class="condition-row" role="group" aria-label="条件 ${index + 1}">
+        <label class="field condition-join">组间关系
+          <select name="join-${index}" aria-describedby="error-join-${index}">${options(joinNames, row.join)}</select>
+          ${fieldError(`join-${index}`)}</label>
+        <label class="field condition-type">条件类型
+          <select name="type-${index}" data-condition-type="${index}" aria-describedby="error-type-${index}"${legacy ? " disabled" : ""}>
+            ${legacy ? option("selfOperated", "是否自营（已有条件）", row.type)
+              : option("", "请选择", row.type) + options(model.conditionTypes, row.type)}
+          </select>${fieldError(`type-${index}`)}</label>
+        <div class="condition-value">${conditionValueEditor(row, index)}</div>
+        ${button("移除", "remove-tag", { attributes: `data-index="${index}" aria-label="移除条件 ${index + 1}"` })}
+      </div>`;
+    }).join("");
   }
 
-  function choices(label, name, values, chosen) {
-    return `<fieldset><legend>${label}</legend><div class="choices">
-      ${values.map((value) => `<label><input type="checkbox" name="${name}" value="${value}"${chosen.includes(value) ? " checked" : ""}>${value}</label>`).join("")}
-    </div></fieldset>`;
+  function conditionValueEditor({ type, input, values = [], value }, index) {
+    const name = `value-${index}`;
+    switch (type) {
+      case "tags":
+        return textField("标签 ID · 命中任一", name, input, 'data-tags placeholder="用空格或逗号分隔"');
+      case "shopIds":
+        return textField("店铺 ID · 命中任一", name, input, 'data-shop-ids placeholder="用空格或逗号分隔"');
+      case "types":
+      case "categories": {
+        const allowed = type === "types" ? model.types : model.categories;
+        return `<fieldset><legend>${model.conditionTypes[type]} · 命中任一</legend><div class="choices">
+          ${allowed.map((entry) => `<label><input type="checkbox" name="${name}" value="${entry}" aria-describedby="error-${name}"${values.includes(entry) ? " checked" : ""}>${entry}</label>`).join("")}
+          </div>${fieldError(name)}</fieldset>`;
+      }
+      case "selfOperated":
+        return `<label class="field">是否自营<select name="${name}" data-self-operated>
+          ${options({ yes: "是", no: "否" }, value)}</select></label>`;
+      default:
+        return "";
+    }
   }
 
   function fieldError(name) {
@@ -436,10 +468,11 @@
   function openEditor(group, trigger) {
     if (group && !isEnabled(group)) return;
     const dialog = $("editor-dialog");
-    const rule = group?.rule ?? model.blankRule();
-    const policy = group?.policy ?? { autoAdd: false, autoRemove: false };
     const interval = model.scanIntervalHours;
-    const moneyValue = (minor) => minor == null ? "" : model.formatMoney(minor).replaceAll(",", "");
+    const rows = group ? model.ruleConditions(group.rule).filter(({ type }) => type !== "recharge").map((condition) => ({
+      ...condition, input: condition.values?.join("、"),
+      value: condition.value == null ? undefined : condition.value ? "yes" : "no"
+    })) : [{ join: "AND", type: "" }];
     const title = group ? "编辑圈组" : "创建圈组";
     const body = `
       <section class="dialog-section">
@@ -447,36 +480,23 @@
         <div class="form-grid">
           ${textField("圈组名称（必填）", "name", group?.name, "autofocus required")}
           <label class="field">备注<textarea name="note" rows="2" aria-describedby="error-note">${esc(group?.note)}</textarea>${fieldError("note")}</label>
-          ${group ? "" : `<label class="field field-wide">初始店铺 ID（选填）
-            <textarea name="initial" rows="2" placeholder="每行一个 ID，按手动新增处理" aria-describedby="error-initial"></textarea>${fieldError("initial")}</label>`}
         </div>
       </section>
       <section class="dialog-section">
         <h3>圈选条件</h3>
-        <p class="muted">至少设置一项条件。标签按括号顺序计算，其他维度同时满足。</p>
-        <div id="tag-list" class="tag-list">${tagEditor(rule.tagGroups.map(({ ids, join }) => ({ input: ids.join("、"), join })))}</div>
-        <div class="actions">${button("添加条件组", "add-tag", { attributes: 'aria-describedby="error-rule"' })}${fieldError("rule")}</div>
-        <p id="first-tag-help" class="muted"${rule.tagGroups.length ? "" : " hidden"}>首组的「且」和「或」都以该组为起点，「且非」排除命中该组的店铺。</p>
-        <p class="expression"><strong>标签表达式</strong>　<span id="expression"></span></p>
-        <div class="form-grid">
-          ${choices("店铺类型", "typeSet", model.types, rule.typeSet)}
-          <fieldset><legend>累计充值金额（EUR）</legend><div class="amount-fields">
-            ${textField("下限", "min", moneyValue(rule.rechargeMinMinor), 'inputmode="decimal" placeholder="不限"')}
-            ${textField("上限", "max", moneyValue(rule.rechargeMaxMinor), 'inputmode="decimal" placeholder="不限"')}
-          </div></fieldset>
-          ${choices("主营大类", "categorySet", model.categories, rule.categorySet)}
-          <label class="field">是否自营<select name="selfOperated">${options({ "": "不限", yes: "是", no: "否" },
-            rule.selfOperated == null ? "" : rule.selfOperated ? "yes" : "no")}</select></label>
-        </div>
+        <div id="tag-list" class="condition-list">${conditionEditor(rows)}</div>
+        <div class="actions">${button("添加条件", "add-tag", { attributes: 'aria-describedby="error-rule"' })}${fieldError("rule")}</div>
+        <p id="first-tag-help" class="muted">条件从上到下计算。首条选「且非」时排除命中该条件的店铺。</p>
+        <p class="expression"><strong>条件表达式</strong>　<span id="expression"></span></p>
       </section>
       <section class="dialog-section">
         <h3>自动维护</h3>
-        <div class="choices"><label><input type="checkbox" name="autoAdd" role="switch"${policy.autoAdd ? " checked" : ""}>自动新增</label>
-          <label><input type="checkbox" name="autoRemove" role="switch"${policy.autoRemove ? " checked" : ""}>自动剔除</label></div>
+        <div class="choices muted"><label><input type="checkbox" name="autoAdd" role="switch" checked disabled>自动新增</label>
+          <label><input type="checkbox" name="autoRemove" role="switch" checked disabled>自动剔除</label></div>
         <label class="field">全量扫描间隔
           <select name="interval" aria-describedby="error-interval"><option value="${interval}">${interval} 小时</option></select>
           ${fieldError("interval")}</label>
-        <p class="muted">本期仅支持 ${interval} 小时。模拟扫描时，人工保护项仅产生差异提醒。</p>
+        <p class="muted">自动新增和剔除始终开启。扫描时，人工保护项仅产生差异提醒。</p>
         <p id="editor-error" class="feedback feedback-error" role="alert"></p>
       </section>`;
     dialog.innerHTML = dialogMarkup("editor-title", title, body,
@@ -484,11 +504,10 @@
     const form = $("editor-form");
 
     function updateExpression() {
-      const { tagGroups } = readDraft(form);
-      const groups = tagGroups.map(({ input, join }) => ({ ids: [...new Set(input.trim().split(/[\s,，、]+/).filter(Boolean))], join }));
-      $("first-tag-help").hidden = !groups.length;
-      $("expression").textContent = model.tagExpression(groups, ({ ids }, index) =>
-        ids.length ? `标签(${ids.join(" 或 ")})` : `标签组 ${index + 1}（待填写）`) || "不限标签";
+      const { value } = model.validateDraft(state, readDraft(form), group?.id);
+      const { conditions } = value.rule;
+      $("first-tag-help").hidden = !conditions.length;
+      $("expression").textContent = model.conditionExpression(conditions) || "尚未设置条件";
     }
     function clearErrors() {
       form.querySelectorAll(".inline-error").forEach((target) => { target.textContent = ""; });
@@ -499,47 +518,54 @@
       $("editor-error").textContent = "请检查标注的字段。";
       for (const [field, message] of Object.entries(errors)) {
         $("error-" + field).textContent = message;
-        editorInput(form, field)?.setAttribute("aria-invalid", "true");
+        form.querySelectorAll(`[name="${field}"]`).forEach((input) => input.setAttribute("aria-invalid", "true"));
       }
-      (editorInput(form, Object.keys(errors)[0]) ?? form.querySelector('[data-action="add-tag"]')).focus();
+      (form.querySelector(`[name="${Object.keys(errors)[0]}"]`) ?? form.querySelector('[data-action="add-tag"]')).focus();
     }
 
-    form.addEventListener("input", updateExpression);
+    form.addEventListener("input", (event) => {
+      if (event.target.dataset.conditionType === undefined) updateExpression();
+    });
+    form.addEventListener("change", (event) => {
+      const index = event.target.dataset.conditionType;
+      if (index === undefined) return;
+      const row = event.target.closest(".condition-row");
+      row.querySelector(".condition-value").innerHTML = conditionValueEditor({ type: event.target.value }, index);
+      event.target.removeAttribute("aria-invalid");
+      $("error-type-" + index).textContent = "";
+      updateExpression();
+    });
     form.addEventListener("click", (event) => {
       const control = event.target.closest("button[data-action]");
       if (!control || !["add-tag", "remove-tag"].includes(control.dataset.action)) return;
-      const rows = readDraft(form).tagGroups;
+      const rows = readDraft(form).conditions;
       const adding = control.dataset.action === "add-tag";
-      if (adding) rows.push({ input: "", join: "AND" });
+      if (adding) rows.push({ type: "", join: "AND" });
       else rows.splice(Number(control.dataset.index), 1);
-      $("tag-list").innerHTML = tagEditor(rows);
+      $("tag-list").innerHTML = conditionEditor(rows);
       clearErrors();
       updateExpression();
-      (adding ? editorInput(form, `tag-${rows.length - 1}`) : form.querySelector('[data-action="add-tag"]')).focus();
+      (adding ? editorInput(form, `join-${rows.length - 1}`) : form.querySelector('[data-action="add-tag"]')).focus();
     });
 
     form.addEventListener("submit", (event) => {
       event.preventDefault();
       clearErrors();
       const { errors, value } = model.validateDraft(state, readDraft(form), group?.id);
-      const initial = editorInput(form, "initial")?.value ?? "";
-      const review = model.inspectIds(state, undefined, initial, "add");
-      if (review.input && !review.valid.length) errors.initial = "没有可新增的店铺，请检查 ID 或清空此字段。";
       if (Object.keys(errors).length) {
         errorsFor(errors);
         return;
       }
-      const { automatic, pending } = model.forecast(state, group, value, review.valid);
+      const { automatic, pending } = model.forecast(state, group, value);
       const amount = (items, action) => items.filter((item) => item.action === action).length;
-      const initialSummary = !group && review.input ? `<p>初始店铺将人工加入 ${review.valid.length} 家。</p>${idReview(review)}` : "";
       confirm("确认保存圈组", `
         <p><strong>${esc(value.name)}</strong>${group ? ` · ${group.id}` : ""}</p>
         <p>${esc(ruleText(value.rule))}</p>
-        ${firstTagRelation(value.rule)}
+        ${firstConditionRelation(value.rule)}
         <p>新增 ${switchText(value.policy.autoAdd)} · 剔除 ${switchText(value.policy.autoRemove)} · 每 ${value.policy.intervalHours} 小时</p>
         <p>预计下次模拟扫描自动加入 ${amount(automatic, "add")} 家、剔除 ${amount(automatic, "remove")} 家；
           预计可加入 ${amount(pending, "add")} 家、待剔除 ${amount(pending, "remove")} 家，其中保护 ${pending.filter((item) => item.protected).length} 家。</p>
-        <p class="muted">保存规则后，自动维护将在下一次模拟扫描执行。${group ? "请重新扫描以更新候选。" : ""}</p>${initialSummary}`,
+        <p class="muted">保存规则后，自动维护将在下一次模拟扫描执行。${group ? "请重新扫描以更新候选。" : ""}</p>`,
         event.submitter, () => {
           const at = new Date().toISOString();
           if (group) {
@@ -548,8 +574,7 @@
               return;
             }
           } else {
-            const created = model.createGroup(state, value, at);
-            if (review.valid.length) model.applyManual(state, created, "add", "configure", initial, at);
+            model.createGroup(state, value, at);
             listPage = 1;
           }
           dialog.close();
@@ -567,13 +592,6 @@
       `<li>${line ? `第 ${line} 行 · ` : ""}${esc(id)} · ${esc(reason)}</li>`).join("")}</ul>`;
   }
 
-  function idReview(result) {
-    const { input, unique, valid, skipped, failed } = result;
-    const unavailable = skipped.filter(({ reason }) => reason !== "重复输入");
-    return `<p>输入 ${input} 行 · 去重后 ${unique} 项 · 有效 ${valid.length} 项 · 无效 ${failed.length} 项 · 不适用 ${unavailable.length} 项</p>
-      ${issueList([...failed, ...skipped].sort((a, b) => a.line - b.line))}`;
-  }
-
   function showResult(group, action, result, fallbackAction) {
     const dialog = $("result-dialog");
     const { success, skipped, failed } = result;
@@ -586,57 +604,6 @@
     </div>`;
     dialog.innerHTML = dialogMarkup("result-title", "店铺处理结果", body, closeButton("关闭", true), "", group.name);
     showDialog(dialog, null, () => restoreFocus(group, fallbackAction));
-  }
-
-  function openConfigure(group, trigger) {
-    if (!isEnabled(group)) return;
-    const dialog = $("configure-dialog");
-    const body = `<section class="dialog-section">
-      <p><strong>${esc(group.name)}</strong> · ${group.id}</p>
-      <fieldset><legend>操作类型（必选）</legend><div class="choices">
-        <label><input type="radio" name="action" value="add" checked>新增</label>
-        <label><input type="radio" name="action" value="remove">删除</label>
-      </div></fieldset>
-      <label class="field">店铺 ID（每行一个）
-        <textarea name="shopIds" rows="5" placeholder="900001" aria-describedby="configure-review" autofocus></textarea>
-      </label>
-      <div id="configure-review" class="configure-status" aria-live="polite"></div>
-    </section>`;
-    dialog.innerHTML = dialogMarkup("configure-title", "配置店铺", body,
-      closeButton() + '<button class="button button-primary" type="submit" id="review-config" disabled>确认新增</button>', "configure-form");
-    const form = $("configure-form");
-    const inspect = () => {
-      const action = editorInput(form, "action").value;
-      const input = editorInput(form, "shopIds").value;
-      return { action, input, review: model.inspectIds(state, group, input, action) };
-    };
-    function renderReview() {
-      const { action, review } = inspect();
-      $("configure-review").innerHTML = review.input ? idReview(review) +
-        (review.valid.length ? "" : '<p class="feedback-error">没有可执行的店铺。</p>') : '<p class="muted">请输入至少一个店铺 ID。</p>';
-      $("review-config").disabled = !review.valid.length;
-      $("review-config").textContent = action === "add" ? "确认新增" : "确认删除";
-    }
-    form.addEventListener("input", renderReview);
-    form.addEventListener("submit", (event) => {
-      event.preventDefault();
-      const { review, action, input } = inspect();
-      if (!review.valid.length) return;
-      const verb = action === "add" ? "新增" : "删除";
-      confirm(`确认${verb}店铺`,
-        `<p>圈组 · ${esc(group.name)}（${group.id}）</p>
-        <p>将${verb} ${review.valid.length} 家店铺 · ${review.valid.map(esc).join("、")}</p>
-        ${idReview(review)}<p class="feedback-warning">这是人工操作，会更新手动决定。</p>`,
-        event.submitter, () => {
-          const result = model.applyManual(state, group, action, "configure", input);
-          dialog.close();
-          if (detail) detail.selected.clear();
-          refresh();
-          showResult(group, action, result, "configure");
-        });
-    });
-    renderReview();
-    showDialog(dialog, trigger, () => restoreFocus(group, "configure"));
   }
 
   function openBatch(trigger) {
@@ -661,7 +628,7 @@
   function historySnapshot(value) {
     if (!value) return "—";
     return `<details><summary>${esc(value.name)} · v${value.policy.ruleVersion} · ${statusNames[value.status]}</summary>
-      <p>${esc(ruleText(value.rule))}</p>${firstTagRelation(value.rule)}<p>新增 ${switchText(value.policy.autoAdd)} · 剔除 ${switchText(value.policy.autoRemove)} · 每 ${value.policy.intervalHours} 小时</p>
+      <p>${esc(ruleText(value.rule))}</p>${firstConditionRelation(value.rule)}<p>新增 ${switchText(value.policy.autoAdd)} · 剔除 ${switchText(value.policy.autoRemove)} · 每 ${value.policy.intervalHours} 小时</p>
       ${value.note ? `<p>备注　${esc(value.note)}</p>` : ""}</details>`;
   }
 
@@ -849,9 +816,9 @@
       case "list": showList(); break;
       case "tab": switchTab(tab); break;
       case "scan":
-      case "fail-scan": void simulateScan(group, action === "fail-scan"); break;
+      case "manual-scan":
+      case "fail-scan": void simulateScan(group, action); break;
       case "edit": openEditor(group, control); break;
-      case "configure": openConfigure(group, control); break;
       case "config-history":
       case "member-history": openHistory(group, action === "member-history", control); break;
       case "enable":

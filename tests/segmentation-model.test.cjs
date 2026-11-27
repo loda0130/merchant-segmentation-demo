@@ -13,8 +13,8 @@ function fixture() {
 }
 
 const draft = (changes = {}) => ({
-  name: "测试圈组", note: "", min: "", max: "", interval: "24", selfOperated: "",
-  autoAdd: false, autoRemove: false, tagGroups: [], typeSet: [], categorySet: [], ...changes
+  name: "测试圈组", note: "", min: "", max: "", interval: "1", selfOperated: "",
+  tagGroups: [], typeSet: [], categorySet: [], ...changes
 });
 const tags = (...groups) => groups.map(([ids, join]) => ({ ids, join }));
 
@@ -146,6 +146,64 @@ test("list condition values reflect the rule configuration across all five dimen
   assert.deepEqual(model.ruleConditionValues({ ...rule, rechargeMaxMinor: null }, "recharge"), ["≥ 0.00 EUR"]);
 });
 
+test("mixed condition rows use the same order in previews, scanning and list filters", () => {
+  const { state } = fixture();
+  const { errors, value } = model.validateDraft(state, draft({ conditions: [
+    { join: "AND", type: "tags", input: "101、101" },
+    { join: "OR", type: "types", values: ["海外仓", "自发货"] },
+    { join: "AND NOT", type: "categories", values: ["办公"] },
+    { join: "AND", type: "shopIds", input: "900001, 900005，900006 900006 0900001" }
+  ] }));
+  assert.deepEqual(errors, {});
+  const expression = "(((标签(101) 或 类型含 (海外仓 或 自发货)) 且非 主营大类为 办公) 且 店铺 ID 为 (900001 或 900005 或 900006 或 0900001))";
+  assert.equal(model.conditionExpression(value.rule.conditions), expression);
+  assert.deepEqual(model.describeRule(value.rule), [expression]);
+  assert.deepEqual(model.ruleConditionValues(value.rule, "tags"), ["101"]);
+  assert.deepEqual(model.ruleConditionValues(value.rule, "shopIds"), ["900001", "900005", "900006", "0900001"]);
+  const group = model.createGroup(state, value);
+  assert.equal(state.members.get(group.id).size, 0);
+  assert.equal(model.forecast(state, group, value).automatic.length, 3);
+  model.scan(state, group);
+  assert.deepEqual([...state.members.get(group.id).keys()], ["900001", "900005", "900006"]);
+  assert.match(model.matchShop(state.shops.get("900004"), group.rule).reasons[0], /命中排除条件/);
+  assert.equal(model.matchShop({ ...state.shops.get("900004"), categoryId: undefined }, group.rule).matched, false);
+  assert.equal(model.matchShop({ ...state.shops.get("900001"), id: "1900001" }, group.rule).matched, false);
+  assert.equal(model.matchShop({ ...state.shops.get("900001"), id: "0900001" }, group.rule).matched, true);
+});
+
+test("condition rows require a supported type and valid values", () => {
+  const { state } = fixture();
+  const { errors } = model.validateDraft(state, draft({ conditions: [
+    { join: "AND", type: "" },
+    { join: "OR", type: "types", values: [] },
+    { join: "AND", type: "tags", input: "101x" },
+    { join: "AND", type: "shopIds", input: "" },
+    { join: "OR", type: "shopIds", input: "900001,xyz" },
+    { join: "AND", type: "recharge", min: "30", max: "30" },
+    { join: "AND", type: "selfOperated", value: "no" }
+  ] }));
+  assert.deepEqual(Object.keys(errors), ["type-0", "value-1", "value-2", "value-3", "value-4", "type-5", "type-6"]);
+  assert.ok(model.validateDraft(state, draft({ conditions: [] })).errors.rule);
+});
+
+test("editing a legacy rule retains its scan results and existing self-operated condition", () => {
+  const { state, group } = fixture();
+  const original = group.rule;
+  const rows = model.ruleConditions(original).map((condition) => ({
+    ...condition, input: condition.values?.join("、"), value: "no"
+  }));
+  const { errors, value } = model.validateDraft(state, draft({
+    name: group.name, autoAdd: true, autoRemove: true, conditions: rows
+  }), group.id);
+  assert.deepEqual(errors, {});
+  assert.equal(model.editGroup(state, group, value), true);
+  for (const shop of state.shops.values()) {
+    assert.equal(model.matchShop(shop, group.rule).matched, model.matchShop(shop, original).matched);
+  }
+  assert.deepEqual(model.ruleConditionValues(group.rule, "selfOperated"), ["否"]);
+  assert.deepEqual(model.scan(state, group).summary, { added: 1, removed: 1, canJoin: 1, toRemove: 1, protected: 2 });
+});
+
 test("draft validation covers blank rules, empty groups, invalid numbers and name collisions", () => {
   const { state, group } = fixture();
   assert.deepEqual(model.validateDraft(state, draft()).errors, { rule: "请配置至少一项圈选条件。" });
@@ -161,14 +219,17 @@ test("draft validation covers blank rules, empty groups, invalid numbers and nam
   assert.equal(valid.value.rule.rechargeMaxMinor, 0);
 });
 
-test("the editor accepts only a 24-hour scan interval", () => {
+test("the editor accepts only a one-hour scan interval and keeps both switches on", () => {
   const { state } = fixture();
-  for (const interval of ["", "1", "23", "25", "48", "168", "24.0", undefined]) {
-    assert.match(model.validateDraft(state, draft({ min: "0", interval })).errors.interval, /仅支持 24 小时/);
+  for (const interval of ["", "2", "24", "48", "168", "1.0", undefined]) {
+    assert.match(model.validateDraft(state, draft({ min: "0", interval })).errors.interval, /仅支持 1 小时/);
   }
-  const valid = model.validateDraft(state, draft({ min: "0", interval: "24" }));
+  const valid = model.validateDraft(state, draft({ min: "0", interval: "1", autoAdd: false, autoRemove: false }));
   assert.deepEqual(valid.errors, {});
-  assert.equal(valid.value.policy.intervalHours, 24);
+  assert.deepEqual(valid.value.policy, { intervalHours: 1, autoAdd: true, autoRemove: true });
+  for (const group of state.groups.values()) {
+    assert.deepEqual(group.policy, { ...valid.value.policy, ruleVersion: 1 });
+  }
 });
 
 test("manual input uses complete string IDs and only successful changes update protection and history", () => {

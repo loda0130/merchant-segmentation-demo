@@ -4,7 +4,9 @@ const Segmentation = (() => {
   const types = ["集运", "自发货", "海外仓"];
   const categories = ["家居", "办公", "服饰"];
   const tagJoins = { AND: "且", OR: "或", "AND NOT": "且非" };
-  const scanIntervalHours = 24;
+  const conditionTypes = { tags: "店铺标签", types: "店铺类型", categories: "主营大类", shopIds: "店铺 ID" };
+  const scanIntervalHours = 1;
+  const maintenancePolicy = { autoAdd: true, autoRemove: true, intervalHours: scanIntervalHours };
   const operator = "示例运营";
   const sources = {
     scan: "系统扫描",
@@ -41,8 +43,70 @@ const Segmentation = (() => {
     return { tagGroups: [], typeSet: [], rechargeMinMinor: null, rechargeMaxMinor: null, categorySet: [], selfOperated: null };
   }
 
+  function ruleConditions(rule) {
+    if (rule.conditions) return rule.conditions;
+    const { tagGroups, typeSet, categorySet, rechargeMinMinor: min, rechargeMaxMinor: max, selfOperated } = rule;
+    const conditions = tagGroups.map(({ ids, join }) => ({ type: "tags", join: join ?? "AND", values: ids }));
+    if (typeSet.length) conditions.push({ type: "types", join: "AND", values: typeSet });
+    if (min != null || max != null) conditions.push({ type: "recharge", join: "AND", min, max });
+    if (categorySet.length) conditions.push({ type: "categories", join: "AND", values: categorySet });
+    if (selfOperated != null) conditions.push({ type: "selfOperated", join: "AND", value: selfOperated });
+    return conditions;
+  }
+
+  function parseIds(input) {
+    return [...new Set(input.trim().split(/[\s,，、]+/).filter(Boolean))];
+  }
+
+  function readRecharge(min, max, errors, minField, maxField) {
+    const range = { min: null, max: null };
+    for (const [key, input, field] of [["min", min, minField], ["max", max, maxField]]) {
+      try {
+        range[key] = parseMoney(input);
+      } catch (error) {
+        errors[field] = error.message;
+      }
+    }
+    if (range.min != null && range.max != null && range.min > range.max) {
+      errors[maxField] = "上限须大于或等于下限。";
+    }
+    return range;
+  }
+
+  function validateConditions(rows, errors, allowSelfOperated) {
+    if (!rows.length) errors.rule = "请配置至少一项圈选条件。";
+    return rows.map((row, index) => {
+      const { type, join } = row;
+      const valueField = `value-${index}`;
+      if (!Object.hasOwn(tagJoins, join)) errors[`join-${index}`] = "请选择组间关系。";
+      switch (type) {
+        case "tags": {
+          const values = parseIds(row.input);
+          if (!values.length || values.some((id) => !/^\d+$/.test(id))) errors[valueField] = "请填写数字标签 ID。";
+          return { type, join, values };
+        }
+        case "shopIds": {
+          const values = parseIds(row.input);
+          if (!values.length || values.some((id) => !/^\d+$/.test(id))) errors[valueField] = "请填写数字店铺 ID。";
+          return { type, join, values };
+        }
+        case "types":
+        case "categories": {
+          const allowed = type === "types" ? types : categories;
+          const values = [...new Set(row.values.filter((value) => allowed.includes(value)))];
+          if (!values.length) errors[valueField] = `请至少选择一个${conditionTypes[type]}。`;
+          return { type, join, values };
+        }
+        case "selfOperated":
+          if (allowSelfOperated && ["yes", "no"].includes(row.value)) return { type, join, value: row.value === "yes" };
+          break;
+      }
+      errors[`type-${index}`] = "请选择条件类型。";
+      return { type, join };
+    });
+  }
+
   function validateDraft(state, draft, groupId) {
-    const rule = blankRule();
     const errors = {};
     const name = draft.name.trim();
     const note = draft.note.trim();
@@ -51,8 +115,21 @@ const Segmentation = (() => {
       group.id !== groupId && group.status !== "deleted" && group.name.toLowerCase() === name.toLowerCase()
     )) errors.name = "已有同名圈组。";
     if ([...note].length > 200) errors.note = "备注最多 200 字。";
+    const previousRule = state.groups.get(groupId)?.rule;
+    const allowSelfOperated = previousRule && ruleConditions(previousRule).some(({ type }) => type === "selfOperated");
+    const rule = draft.conditions
+      ? { conditions: validateConditions(draft.conditions, errors, allowSelfOperated) }
+      : validateLegacyRule(draft, errors);
+    if (String(draft.interval) !== String(scanIntervalHours)) {
+      errors.interval = `全量扫描间隔仅支持 ${scanIntervalHours} 小时。`;
+    }
+    return { errors, value: { name, note, rule, policy: { ...maintenancePolicy } } };
+  }
+
+  function validateLegacyRule(draft, errors) {
+    const rule = blankRule();
     rule.tagGroups = draft.tagGroups.map(({ input, join: selectedJoin }, index) => {
-      const ids = [...new Set(input.trim().split(/[\s,，、]+/).filter(Boolean))];
+      const ids = parseIds(input);
       const join = selectedJoin ?? (index === 0 ? "AND" : null);
       if (!ids.length || ids.some((id) => !/^\d+$/.test(id))) {
         errors[`tag-${index}`] = "请填写数字标签 ID，或移除此条件组。";
@@ -63,36 +140,28 @@ const Segmentation = (() => {
     rule.typeSet = draft.typeSet.filter((type) => has(type, types));
     rule.categorySet = draft.categorySet.filter((category) => has(category, categories));
     rule.selfOperated = draft.selfOperated === "" ? null : draft.selfOperated === "yes";
-    for (const [field, key] of [["min", "rechargeMinMinor"], ["max", "rechargeMaxMinor"]]) {
-      try {
-        rule[key] = parseMoney(draft[field]);
-      } catch (error) {
-        errors[field] = error.message;
-      }
-    }
-    if (rule.rechargeMinMinor != null && rule.rechargeMaxMinor != null && rule.rechargeMinMinor > rule.rechargeMaxMinor) {
-      errors.max = "上限须大于或等于下限。";
-    }
+    const { min, max } = readRecharge(draft.min, draft.max, errors, "min", "max");
+    rule.rechargeMinMinor = min;
+    rule.rechargeMaxMinor = max;
     if (!Object.keys(errors).some((field) => /^(tag-|min$|max$)/.test(field)) && !describeRule(rule).length) {
       errors.rule = "请配置至少一项圈选条件。";
     }
-    if (String(draft.interval) !== String(scanIntervalHours)) {
-      errors.interval = `全量扫描间隔仅支持 ${scanIntervalHours} 小时。`;
-    }
-    return { errors, value: { name, note, rule, policy: {
-      autoAdd: draft.autoAdd, autoRemove: draft.autoRemove, intervalHours: scanIntervalHours
-    } } };
+    return rule;
   }
 
-  function tagExpression(groups, label = ({ ids }) => `标签(${ids.join(" 或 ")})`) {
-    return groups.reduce((expression, group, index) => {
-      const term = label(group, index);
-      if (index) return `(${expression} ${tagJoins[group.join]} ${term})`;
-      return group.join === "AND NOT" ? `非 ${term}` : term;
+  function joinConditions(conditions, label) {
+    return conditions.reduce((expression, condition, index) => {
+      const term = label(condition, index);
+      if (index) return `(${expression} ${tagJoins[condition.join]} ${term})`;
+      return condition.join === "AND NOT" ? `非 ${term}` : term;
     }, "");
   }
 
-  function describeRecharge({ rechargeMinMinor: min, rechargeMaxMinor: max }) {
+  function tagExpression(groups, label = ({ ids }) => `标签(${ids.join(" 或 ")})`) {
+    return joinConditions(groups, label);
+  }
+
+  function describeRecharge({ min, max }) {
     if (min == null && max == null) return "";
     if (min == null) return `≤ ${formatMoney(max)} EUR`;
     if (max == null) return `≥ ${formatMoney(min)} EUR`;
@@ -100,66 +169,86 @@ const Segmentation = (() => {
   }
 
   function ruleConditionValues(rule, dimension) {
-    switch (dimension) {
-      case "tags": return rule.tagGroups.flatMap(({ ids }) => ids);
-      case "types": return rule.typeSet;
-      case "recharge": {
-        const value = describeRecharge(rule);
-        return value ? [value] : [];
-      }
-      case "categories": return rule.categorySet;
-      case "selfOperated": return rule.selfOperated == null ? [] : [rule.selfOperated ? "是" : "否"];
-      default: return [];
+    return [...new Set(ruleConditions(rule).filter(({ type }) => type === dimension).flatMap((condition) => {
+      if (dimension === "recharge") return [describeRecharge(condition)];
+      if (dimension === "selfOperated") return [condition.value ? "是" : "否"];
+      return condition.values;
+    }))];
+  }
+
+  function describeCondition({ type, values, min, max, value }) {
+    const alternatives = (items) => items.length > 1 ? `(${items.join(" 或 ")})` : items[0];
+    switch (type) {
+      case "tags": return values?.length ? `标签(${values.join(" 或 ")})` : "";
+      case "shopIds": return values?.length ? `店铺 ID 为 ${alternatives(values)}` : "";
+      case "types": return values?.length ? `类型含 ${alternatives(values)}` : "";
+      case "categories": return values?.length ? `主营大类为 ${alternatives(values)}` : "";
+      case "recharge": return min != null || max != null ? `累计充值 ${describeRecharge({ min, max })}` : "";
+      case "selfOperated": return value == null ? "" : value ? "自营" : "非自营";
+      default: return "";
     }
+  }
+
+  function conditionExpression(conditions) {
+    return joinConditions(conditions, (condition, index) => describeCondition(condition) || `条件 ${index + 1}（待填写）`);
   }
 
   function describeRule(rule) {
-    const lines = [];
-    if (rule.tagGroups.length) lines.push(tagExpression(rule.tagGroups));
-    const alternatives = (values) => values.length > 1 ? `(${values.join(" 或 ")})` : values[0];
-    if (rule.typeSet.length) lines.push(`类型含 ${alternatives(rule.typeSet)}`);
-    const rechargeRange = describeRecharge(rule);
-    if (rechargeRange) lines.push(`累计充值 ${rechargeRange}`);
-    if (rule.categorySet.length) lines.push(`主营大类为 ${alternatives(rule.categorySet)}`);
-    if (rule.selfOperated != null) lines.push(rule.selfOperated ? "自营" : "非自营");
+    if (rule.conditions) return rule.conditions.length ? [conditionExpression(rule.conditions)] : [];
+    const lines = rule.tagGroups.length ? [tagExpression(rule.tagGroups)] : [];
+    lines.push(...ruleConditions(rule).filter(({ type }) => type !== "tags").map(describeCondition));
     return lines;
   }
 
+  function checkCondition(shop, { type, values, min, max, value }) {
+    const result = (matched, reason) => ({ matched, reason: matched ? "" : reason });
+    switch (type) {
+      case "tags":
+        if (!Array.isArray(shop.tags)) return result(null, "缺少店铺标签");
+        return result(values.some((id) => shop.tags.includes(id)), "不满足标签表达式");
+      case "shopIds":
+        if (!shop.id) return result(null, "缺少店铺 ID");
+        return result(values.includes(shop.id), "店铺 ID 不匹配");
+      case "types":
+        if (!Array.isArray(shop.types) || !shop.types.length || shop.types.some((entry) => !has(entry, types))) {
+          return result(null, "店铺类型缺失或未知");
+        }
+        return result(values.some((entry) => shop.types.includes(entry)), "店铺类型不匹配");
+      case "categories":
+        if (!has(shop.categoryId, categories)) return result(null, "主营大类缺失或未知");
+        return result(values.includes(shop.categoryId), "主营大类不匹配");
+      case "recharge": {
+        const amount = shop.totalRechargeMinor;
+        if (!Number.isSafeInteger(amount) || amount < 0 || shop.currency !== "EUR") {
+          return result(null, "缺少有效 EUR 累计充值金额");
+        }
+        if (min != null && amount < min) return result(false, "累计充值低于下限");
+        if (max != null && amount > max) return result(false, "累计充值高于上限");
+        return result(true);
+      }
+      case "selfOperated":
+        if (typeof shop.isSelfOperated !== "boolean") return result(null, "缺少自营属性");
+        return result(shop.isSelfOperated === value, "自营属性不匹配");
+    }
+  }
+
   function matchShop(shop, rule) {
-    const reasons = [];
-    if (rule.tagGroups.length) {
-      if (!Array.isArray(shop.tags)) reasons.push("缺少店铺标签");
-      else {
-        const matches = rule.tagGroups.reduce((matched, group, index) => {
-          const hit = group.ids.some((id) => shop.tags.includes(id));
-          if (!index) return group.join === "AND NOT" ? !hit : hit;
-          if (group.join === "OR") return matched || hit;
-          return matched && (group.join === "AND NOT" ? !hit : hit);
-        }, false);
-        if (!matches) reasons.push("不满足标签表达式");
-      }
-    }
-    if (rule.typeSet.length) {
-      if (!shop.types?.length || shop.types.some((type) => !has(type, types))) reasons.push("店铺类型缺失或未知");
-      else if (!rule.typeSet.some((type) => shop.types.includes(type))) reasons.push("店铺类型不匹配");
-    }
-    if (rule.rechargeMinMinor != null || rule.rechargeMaxMinor != null) {
-      const amount = shop.totalRechargeMinor;
-      if (!Number.isSafeInteger(amount) || amount < 0 || shop.currency !== "EUR") reasons.push("缺少有效 EUR 累计充值金额");
-      else {
-        if (rule.rechargeMinMinor != null && amount < rule.rechargeMinMinor) reasons.push("累计充值低于下限");
-        if (rule.rechargeMaxMinor != null && amount > rule.rechargeMaxMinor) reasons.push("累计充值高于上限");
-      }
-    }
-    if (rule.categorySet.length) {
-      if (!has(shop.categoryId, categories)) reasons.push("主营大类缺失或未知");
-      else if (!rule.categorySet.includes(shop.categoryId)) reasons.push("主营大类不匹配");
-    }
-    if (rule.selfOperated != null) {
-      if (typeof shop.isSelfOperated !== "boolean") reasons.push("缺少自营属性");
-      else if (shop.isSelfOperated !== rule.selfOperated) reasons.push("自营属性不匹配");
-    }
-    return { matched: reasons.length === 0, reasons };
+    let matched = true;
+    let reasons = [];
+    ruleConditions(rule).forEach((condition, index) => {
+      const result = checkCondition(shop, condition);
+      const negate = condition.join === "AND NOT";
+      const hit = negate ? result.matched === false : result.matched === true;
+      if (!index) matched = hit;
+      else if (condition.join === "OR") matched = matched || hit;
+      else matched = matched && hit;
+
+      if (matched) reasons = [];
+      else if (!hit) reasons.push(
+        negate && result.matched ? `命中排除条件（${describeCondition(condition)}）` : result.reason
+      );
+    });
+    return { matched, reasons: [...new Set(reasons)] };
   }
 
   function snapshot(group) {
@@ -244,13 +333,9 @@ const Segmentation = (() => {
     return { automatic, pending };
   }
 
-  function forecast(state, group, value, initialIds) {
-    const members = new Map(state.members.get(group?.id));
-    const overrides = new Map(state.overrides.get(group?.id));
-    for (const id of initialIds) {
-      members.set(id, {});
-      overrides.set(id, { decision: "FORCE_IN" });
-    }
+  function forecast(state, group, value) {
+    const members = state.members.get(group?.id) ?? new Map();
+    const overrides = state.overrides.get(group?.id) ?? new Map();
     return planScan({ ...value, id: group?.id }, state.shops.values(), members, overrides);
   }
 
@@ -375,12 +460,12 @@ const Segmentation = (() => {
       configLogs: [], memberLogs: [], nextGroup: 1001, nextBatch: 1
     };
     const at = "2026-11-27T01:00:00.000Z";
-    const makeGroup = (name, note, settings, autoAdd, autoRemove, createdAt) => createGroup(state, {
-      name, note, rule: { ...blankRule(), ...settings }, policy: { autoAdd, autoRemove, intervalHours: scanIntervalHours }
+    const makeGroup = (name, note, settings, createdAt) => createGroup(state, {
+      name, note, rule: { ...blankRule(), ...settings }, policy: maintenancePolicy
     }, createdAt);
     const sample = makeGroup("潜力店铺组", "PRD 六店验收样本，用于观察自动维护和人工保护。", {
-      tagGroups: [{ ids: ["101"], join: "AND" }], typeSet: ["海外仓"], rechargeMinMinor: 100000, selfOperated: false
-    }, true, true, at);
+      tagGroups: [{ ids: ["101"], join: "AND" }], typeSet: ["海外仓"], selfOperated: false
+    }, at);
     const memberSet = state.members.get(sample.id);
     for (const shopId of ["900002", "900004", "900005"]) {
       memberSet.set(shopId, { groupId: sample.id, shopId, joinedAt: at, source: "seed" });
@@ -388,16 +473,17 @@ const Segmentation = (() => {
     applyManual(state, sample, "add", "configure", "900003", at);
     applyManual(state, sample, "remove", "configure", "900004", at);
     makeGroup("新品类观察组", "由运营复核家居和办公类店铺。", { categorySet: ["家居", "办公"] },
-      false, false, "2026-11-26T01:00:00.000Z");
+      "2026-11-26T01:00:00.000Z");
     const paused = makeGroup("活动候选组", "演示已停用的圈组。", { typeSet: ["集运", "自发货"], categorySet: ["服饰"] },
-      true, false, "2026-11-25T01:00:00.000Z");
+      "2026-11-25T01:00:00.000Z");
     changeStatus(state, paused, "disable", "2026-11-25T02:00:00.000Z");
     return state;
   }
 
   return {
-    types, categories, tagJoins, scanIntervalHours, sources, actions, formatMoney, formatTime, parseMoney, blankRule, validateDraft,
-    tagExpression, describeRule, ruleConditionValues, matchShop, createDemo, createGroup, editGroup, changeStatus,
+    types, categories, tagJoins, conditionTypes, scanIntervalHours, sources, actions, formatMoney, formatTime, parseMoney,
+    blankRule, validateDraft, ruleConditions, conditionExpression, tagExpression, describeRule, ruleConditionValues,
+    matchShop, createDemo, createGroup, editGroup, changeStatus,
     forecast, scan, candidates, inspectIds, inspectCandidates, applyManual
   };
 })();
