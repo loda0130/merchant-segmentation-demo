@@ -186,6 +186,47 @@ test("condition rows require a supported type and valid values", () => {
   assert.ok(model.validateDraft(state, draft({ conditions: [] })).errors.rule);
 });
 
+test("value operators are independent of the connectors and preserve exact IDs", () => {
+  const { state } = fixture();
+  const { value, errors } = model.validateDraft(state, draft({ conditions: [
+    { join: "AND", type: "shopIds", operator: "eq", input: "0900001" },
+    { join: "OR", type: "types", operator: "in", values: ["海外仓", "集运"] },
+    { join: "AND", type: "categories", operator: "notIn", values: ["办公"] }
+  ] }));
+  assert.deepEqual(errors, {});
+  assert.equal(model.conditionExpression(value.rule.conditions),
+    "((店铺 ID 等于 0900001 或 店铺类型 包含任一 (海外仓 或 集运)) 且 主营大类 不属于任何 办公)");
+  assert.equal(model.matchShop({ id: "0900001", categoryId: "家居" }, value.rule).matched, true);
+  assert.equal(model.matchShop({ id: "900001", categoryId: "家居" }, value.rule).matched, false);
+  assert.equal(model.matchShop({ id: "900005", types: ["海外仓"], categoryId: "家居" }, value.rule).matched, true);
+  assert.equal(model.matchShop({ id: "0900001", categoryId: "办公" }, value.rule).matched, false);
+  assert.equal(model.matchShop({ id: "0900001" }, value.rule).matched, false);
+  const invalid = model.validateDraft(state, draft({ conditions: [
+    { join: "AND", type: "shopIds", operator: "eq", input: "0900001,0900001" },
+    { join: "AND", type: "types", operator: "eq", values: ["海外仓", "集运"] },
+    { join: "AND", type: "tags", operator: "eq", input: "101" }
+  ] }));
+  assert.deepEqual(Object.keys(invalid.errors), ["value-0", "value-1", "operator-2"]);
+});
+
+test("editing old AND NOT rows keeps their match by separating the negative operator", () => {
+  const { state, group } = fixture();
+  const old = { conditions: [
+    { join: "AND NOT", type: "tags", values: ["101"] },
+    { join: "OR", type: "shopIds", values: ["900001"] },
+    { join: "AND NOT", type: "selfOperated", value: true }
+  ] };
+  const rows = model.ruleConditions(old).map(model.editableCondition).map((row) => ({
+    ...row, input: row.values?.join(" "), value: row.value === true ? "yes" : undefined
+  }));
+  assert.deepEqual(rows.map(({ join, operator }) => [join, operator]), [["AND", "notIn"], ["OR", "in"], ["AND", "ne"]]);
+  const { errors, value } = model.validateDraft(state, draft({ conditions: rows }), group.id);
+  assert.deepEqual(errors, {});
+  for (const shop of state.shops.values()) {
+    assert.equal(model.matchShop(shop, value.rule).matched, model.matchShop(shop, old).matched);
+  }
+});
+
 test("editing a legacy rule retains its scan results and existing self-operated condition", () => {
   const { state, group } = fixture();
   const original = group.rule;

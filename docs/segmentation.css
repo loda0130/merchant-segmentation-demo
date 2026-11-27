@@ -122,16 +122,10 @@
   border: 1px solid var(--color-line);
   border-radius: var(--radius-panel);
 }
-.segmentation .detail-reminders .actions { column-gap: 16px; }
 .segmentation .detail-tools { padding: 12px var(--panel-gutter); border-bottom: 1px solid var(--color-line); }
 .segmentation .detail-filter { display: flex; flex-wrap: wrap; gap: 10px; align-items: end; }
-.segmentation .detail-tools > .actions + .detail-filter { margin-top: 10px; }
+.segmentation .detail-tools > h2 { margin-bottom: 10px; }
 .segmentation .detail-filter .field { width: min(200px, 100%); }
-.segmentation .tab-button[aria-pressed="true"] {
-  border-color: var(--color-primary);
-  color: var(--color-primary);
-  background: var(--color-primary-soft);
-}
 .segmentation .detail-table table { min-width: 1060px; }
 .segmentation .detail-table .shop-col { width: 155px; }
 .segmentation .detail-table .type-col { width: 95px; }
@@ -141,14 +135,12 @@
 .segmentation .detail-table .self-col { width: 70px; }
 .segmentation .detail-table .origin-col { width: 172px; }
 .segmentation .match-text + .badge { margin-top: 4px; }
-.segmentation .batch-bar { padding: 10px var(--panel-gutter); }
 .segmentation .scan-options { font-size: var(--font-table); }
 .segmentation .scan-options summary { cursor: pointer; }
 .segmentation .scan-options .button { margin-top: 4px; }
 .segmentation .business-dialog { overflow: hidden; }
 .segmentation .wide-editor { width: min(960px, calc(100% - 32px)); }
 .segmentation .history-dialog { width: min(980px, calc(100% - 32px)); }
-.segmentation .result-dialog { width: min(520px, calc(100% - 32px)); }
 .segmentation .dialog-layout { display: flex; flex-direction: column; max-height: calc(85dvh - 2px); }
 .segmentation .dialog-heading, .segmentation .dialog-actions { flex: none; }
 .segmentation .dialog-scroll { min-height: 0; overflow: auto; overscroll-behavior: contain; }
@@ -156,11 +148,11 @@
 .segmentation .dialog-section:last-child { border-bottom: 0; }
 .segmentation .dialog-section h3 { font-size: 14px; margin: 0; }
 .segmentation .form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 16px; }
-.segmentation .condition-list { display: grid; gap: 8px; }
+.segmentation .condition-list { display: grid; }
 .segmentation .condition-list:empty { display: none; }
 .segmentation .condition-row {
   display: grid;
-  grid-template-columns: 112px 166px minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 168px) minmax(0, 148px) minmax(0, 1fr) auto;
   gap: 8px 12px;
   align-items: start;
   padding: 9px 10px;
@@ -169,7 +161,19 @@
   border-radius: var(--radius-control);
 }
 .segmentation .condition-value { min-width: 0; }
+.segmentation .condition-value .choices {
+  padding-inline: 9px;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-control);
+  background: var(--color-surface);
+}
 .segmentation .condition-row > .button { margin-top: 24px; }
+.segmentation .condition-connector {
+  margin-inline-start: 24px;
+  padding: 6px 0 6px 10px;
+  border-inline-start: 1px solid var(--color-line);
+}
+.segmentation .condition-connector select { width: 64px; background: var(--color-soft); }
 .segmentation .expression {
   padding: 8px 10px;
   background: var(--color-soft);
@@ -184,7 +188,6 @@
 .segmentation .inline-error { color: var(--color-danger); }
 .segmentation .inline-error:empty { display: none; }
 .segmentation [aria-invalid="true"] { border-color: var(--color-danger); }
-.segmentation .issue-list { margin: 0; padding-inline-start: 20px; overflow-wrap: anywhere; }
 .segmentation .history-table table { min-width: 820px; }
 .segmentation .history-table .history-time { width: 150px; }
 .segmentation .history-table .history-short { width: 90px; }
@@ -200,13 +203,12 @@
   .segmentation .top-nav { gap: 2px; }
   .segmentation .top-nav a { padding-inline: 4px; }
   .segmentation .detail-tools, .segmentation .group-summary, .segmentation .detail-reminders,
-  .segmentation .batch-bar, .segmentation .dialog-heading, .segmentation .dialog-section,
+  .segmentation .dialog-heading, .segmentation .dialog-section,
   .segmentation .dialog-actions, .segmentation .confirm-body { padding-inline: 12px; }
   .segmentation .detail-filter .field { width: 100%; }
   .segmentation .form-grid { grid-template-columns: minmax(0, 1fr); }
-  .segmentation .condition-row { grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); }
+  .segmentation .condition-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .segmentation .condition-value { grid-column: 1 / -1; }
-  .segmentation .condition-value:empty { display: none; }
   .segmentation .condition-row > .button { grid-column: 2; justify-self: end; margin-top: 0; }
 }
 

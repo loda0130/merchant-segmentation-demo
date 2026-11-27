@@ -5,6 +5,15 @@ const Segmentation = (() => {
   const categories = ["家居", "办公", "服饰"];
   const tagJoins = { AND: "且", OR: "或", "AND NOT": "且非" };
   const conditionTypes = { tags: "店铺标签", types: "店铺类型", categories: "主营大类", shopIds: "店铺 ID" };
+  const membershipOperators = { eq: "等于", ne: "不等于", in: "属于任一", notIn: "不属于任何" };
+  const conditionOperators = {
+    tags: { in: "包含任一", notIn: "不包含任何" },
+    types: { eq: "包含", ne: "不包含", in: "包含任一", notIn: "不包含任何" },
+    categories: membershipOperators,
+    shopIds: membershipOperators,
+    selfOperated: { eq: "等于", ne: "不等于" }
+  };
+  const isSingleValue = (operator) => operator === "eq" || operator === "ne";
   const scanIntervalHours = 1;
   const maintenancePolicy = { autoAdd: true, autoRemove: true, intervalHours: scanIntervalHours };
   const operator = "示例运营";
@@ -58,6 +67,16 @@ const Segmentation = (() => {
     return [...new Set(input.trim().split(/[\s,，、]+/).filter(Boolean))];
   }
 
+  function editableCondition(condition) {
+    if (condition.operator) return condition;
+    const negated = condition.join === "AND NOT";
+    return {
+      ...condition,
+      join: negated ? "AND" : condition.join,
+      operator: condition.type === "selfOperated" ? (negated ? "ne" : "eq") : (negated ? "notIn" : "in")
+    };
+  }
+
   function readRecharge(min, max, errors, minField, maxField) {
     const range = { min: null, max: null };
     for (const [key, input, field] of [["min", min, minField], ["max", max, maxField]]) {
@@ -76,33 +95,42 @@ const Segmentation = (() => {
   function validateConditions(rows, errors, allowSelfOperated) {
     if (!rows.length) errors.rule = "请配置至少一项圈选条件。";
     return rows.map((row, index) => {
-      const { type, join } = row;
+      const { type, join, operator } = row;
       const valueField = `value-${index}`;
-      if (!Object.hasOwn(tagJoins, join)) errors[`join-${index}`] = "请选择组间关系。";
+      if (!Object.hasOwn(tagJoins, join) || (operator && join === "AND NOT")) errors[`join-${index}`] = "请选择组间关系。";
+      const operators = conditionOperators[type];
+      if (operators && operator !== undefined && !Object.hasOwn(operators, operator)) {
+        errors[`operator-${index}`] = "请选择适用的运算符。";
+      }
+      const condition = operator ? { type, join, operator } : { type, join };
       switch (type) {
         case "tags": {
           const values = parseIds(row.input);
           if (!values.length || values.some((id) => !/^\d+$/.test(id))) errors[valueField] = "请填写数字标签 ID。";
-          return { type, join, values };
+          return { ...condition, values };
         }
         case "shopIds": {
           const values = parseIds(row.input);
-          if (!values.length || values.some((id) => !/^\d+$/.test(id))) errors[valueField] = "请填写数字店铺 ID。";
-          return { type, join, values };
+          if (isSingleValue(operator) ? !/^\d+$/.test(row.input.trim()) : !values.length || values.some((id) => !/^\d+$/.test(id))) {
+            errors[valueField] = isSingleValue(operator) ? "请填写一个完整的数字店铺 ID。" : "请填写数字店铺 ID。";
+          }
+          return { ...condition, values };
         }
         case "types":
         case "categories": {
           const allowed = type === "types" ? types : categories;
           const values = [...new Set(row.values.filter((value) => allowed.includes(value)))];
-          if (!values.length) errors[valueField] = `请至少选择一个${conditionTypes[type]}。`;
-          return { type, join, values };
+          if (isSingleValue(operator) ? values.length !== 1 : !values.length) {
+            errors[valueField] = `请选择${isSingleValue(operator) ? "一个" : "至少一个"}${conditionTypes[type]}。`;
+          }
+          return { ...condition, values };
         }
         case "selfOperated":
-          if (allowSelfOperated && ["yes", "no"].includes(row.value)) return { type, join, value: row.value === "yes" };
+          if (allowSelfOperated && ["yes", "no"].includes(row.value)) return { ...condition, value: row.value === "yes" };
           break;
       }
       errors[`type-${index}`] = "请选择条件类型。";
-      return { type, join };
+      return condition;
     });
   }
 
@@ -176,8 +204,14 @@ const Segmentation = (() => {
     }))];
   }
 
-  function describeCondition({ type, values, min, max, value }) {
+  function describeCondition({ type, operator, values, min, max, value }) {
     const alternatives = (items) => items.length > 1 ? `(${items.join(" 或 ")})` : items[0];
+    if (operator && Object.hasOwn(conditionOperators[type] ?? {}, operator)) {
+      const operand = type === "selfOperated" ? (value == null ? "" : value ? "是" : "否")
+        : values?.length ? alternatives(values) : "";
+      const field = type === "selfOperated" ? "自营" : conditionTypes[type];
+      return operand ? `${field} ${conditionOperators[type][operator]} ${operand}` : "";
+    }
     switch (type) {
       case "tags": return values?.length ? `标签(${values.join(" 或 ")})` : "";
       case "shopIds": return values?.length ? `店铺 ID 为 ${alternatives(values)}` : "";
@@ -237,7 +271,7 @@ const Segmentation = (() => {
     let reasons = [];
     ruleConditions(rule).forEach((condition, index) => {
       const result = checkCondition(shop, condition);
-      const negate = condition.join === "AND NOT";
+      const negate = condition.join === "AND NOT" || ["ne", "notIn"].includes(condition.operator);
       const hit = negate ? result.matched === false : result.matched === true;
       if (!index) matched = hit;
       else if (condition.join === "OR") matched = matched || hit;
@@ -245,7 +279,7 @@ const Segmentation = (() => {
 
       if (matched) reasons = [];
       else if (!hit) reasons.push(
-        negate && result.matched ? `命中排除条件（${describeCondition(condition)}）` : result.reason
+        negate && result.matched ? `命中排除条件（${describeCondition({ ...condition, operator: undefined })}）` : result.reason
       );
     });
     return { matched, reasons: [...new Set(reasons)] };
@@ -481,7 +515,8 @@ const Segmentation = (() => {
   }
 
   return {
-    types, categories, tagJoins, conditionTypes, scanIntervalHours, sources, actions, formatMoney, formatTime, parseMoney,
+    types, categories, tagJoins, conditionTypes, conditionOperators, isSingleValue, editableCondition, scanIntervalHours,
+    sources, actions, formatMoney, formatTime, parseMoney,
     blankRule, validateDraft, ruleConditions, conditionExpression, tagExpression, describeRule, ruleConditionValues,
     matchShop, createDemo, createGroup, editGroup, changeStatus,
     forecast, scan, candidates, inspectIds, inspectCandidates, applyManual
