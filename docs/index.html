@@ -1,4 +1,106 @@
 <!doctype html>
-<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>商家圈组 · 设计预览</title><link rel="stylesheet" href="./styles.css"><style>.preview{padding:20px 24px}.intro{padding:18px;margin-bottom:18px}.preview nav{display:flex;gap:16px;flex-wrap:wrap;margin-top:12px}.preview a{color:var(--color-primary)}.figure{margin:0 0 24px;padding:14px}.figure h2{margin-bottom:10px}.figure img{display:block;width:100%;height:auto}.note{margin-top:10px;color:var(--color-muted);font-size:12px}</style></head>
-<body><header class="masthead"><div class="masthead-content"><strong>商家圈组</strong><a href="./components.html">公共组件示例</a></div></header>
-<main class="preview"><section class="panel intro"><h1>商家圈组 · 需求与设计预览</h1><p>当前为开发参考稿，完整业务交互待下一阶段实现。所有样本均为虚构。</p><nav><a href="#01-list">圈组列表</a><a href="#02-rule-editor">创建 / 编辑圈组</a><a href="#03-detail">详情与待处理</a><a href="#04-configure">配置店铺与确认</a><a href="#05-history">修改与进出历史</a></nav><p class="note">规则：条件圈店、自动新增与剔除独立配置、人工决定只提醒不自动反向覆盖。</p></section><section class="panel figure" id="01-list"><h2>圈组列表</h2><a href="./assets/references/01-list.svg" target="_blank" rel="noopener"><img src="./assets/references/01-list.svg" alt="圈组列表：商家圈组精确字段设计参考" loading="eager"></a></section><section class="panel figure" id="02-rule-editor"><h2>创建 / 编辑圈组</h2><a href="./assets/references/02-rule-editor.svg" target="_blank" rel="noopener"><img src="./assets/references/02-rule-editor.svg" alt="创建 / 编辑圈组：商家圈组精确字段设计参考" loading="lazy"></a></section><section class="panel figure" id="03-detail"><h2>详情与待处理</h2><a href="./assets/references/03-detail.svg" target="_blank" rel="noopener"><img src="./assets/references/03-detail.svg" alt="详情与待处理：商家圈组精确字段设计参考" loading="lazy"></a></section><section class="panel figure" id="04-configure"><h2>配置店铺与确认</h2><a href="./assets/references/04-configure.svg" target="_blank" rel="noopener"><img src="./assets/references/04-configure.svg" alt="配置店铺与确认：商家圈组精确字段设计参考" loading="lazy"></a></section><section class="panel figure" id="05-history"><h2>修改与进出历史</h2><a href="./assets/references/05-history.svg" target="_blank" rel="noopener"><img src="./assets/references/05-history.svg" alt="修改与进出历史：商家圈组精确字段设计参考" loading="lazy"></a></section></main></body></html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>商家圈组</title>
+  <link rel="icon" href="./favicon.ico" sizes="32x32">
+  <link rel="stylesheet" href="./styles.css">
+  <link rel="stylesheet" href="./segmentation.css">
+  <script src="./segmentation-model.js" defer></script>
+  <script src="./segmentation.js" defer></script>
+</head>
+<body class="segmentation">
+  <header class="masthead">
+    <div class="masthead-content">
+      <strong class="workspace-name">运营工作台</strong>
+      <nav class="top-nav" aria-label="工作台">
+        <a href="./" aria-current="page">商家圈组</a>
+        <a href="./design-preview.html">设计预览</a>
+        <a href="./components.html">公共组件</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="workspace">
+    <nav class="breadcrumb" aria-label="当前位置"><ol id="breadcrumb"></ol></nav>
+    <section id="list-view" aria-labelledby="list-title">
+      <div class="page-heading">
+        <div>
+          <h1 id="list-title" tabindex="-1">商家圈组</h1>
+          <p class="muted">虚构店铺数据 · 仅在当前页面演示，刷新后恢复样本。</p>
+        </div>
+        <button class="button button-primary" id="create-group" type="button">创建圈组</button>
+      </div>
+      <form id="group-filters" class="panel filters" aria-label="筛选圈组">
+        <div class="filter-grid">
+          <label class="field">圈组名称 / ID<input name="keyword" type="search" placeholder="输入名称或 ID"></label>
+          <label class="field">状态<select name="status"><option value="">全部状态</option><option value="enabled">启用</option><option value="disabled">停用</option></select></label>
+          <label class="field">自动新增<select name="autoAdd"><option value="">全部</option><option value="true">开启</option><option value="false">关闭</option></select></label>
+          <label class="field">自动剔除<select name="autoRemove"><option value="">全部</option><option value="true">开启</option><option value="false">关闭</option></select></label>
+          <div id="condition-filter" class="condition-filter">
+            <div class="field">
+              <span id="condition-label">圈选条件</span>
+              <button id="condition-trigger" class="button condition-trigger" type="button" aria-expanded="false"
+                aria-controls="condition-menu" aria-labelledby="condition-label condition-current">
+                <span id="condition-current">全部圈选条件</span>
+              </button>
+            </div>
+            <div id="condition-menu" class="condition-menu" role="group" aria-labelledby="condition-label" hidden>
+              <div class="condition-levels">
+                <div id="condition-dimensions" class="condition-dimensions" role="group" aria-label="条件维度"></div>
+                <fieldset class="condition-options">
+                  <legend id="condition-heading"></legend>
+                  <div id="condition-choices" class="condition-choices"></div>
+                </fieldset>
+              </div>
+              <div id="condition-footer" class="condition-footer" hidden>
+                <button class="button button-text" id="condition-clear" type="button">清除选择</button>
+              </div>
+            </div>
+          </div>
+          <div class="filter-actions group-filter-actions">
+            <button class="button button-primary" type="submit">查询</button>
+            <button class="button" type="reset">重置</button>
+          </div>
+        </div>
+      </form>
+      <section class="panel" aria-labelledby="groups-heading">
+        <div class="panel-header"><div class="section-title">
+          <h2 id="groups-heading">圈组列表</h2><span class="count" id="group-count" aria-live="polite"></span>
+        </div></div>
+        <div class="table-scroll group-table" tabindex="0" role="region" aria-label="圈组列表表格">
+          <table>
+            <colgroup>
+              <col class="identity-col"><col class="rule-col"><col class="size-col"><col class="policy-col">
+              <col class="pending-col"><col class="status-col"><col class="maintenance-col"><col class="actions-col">
+            </colgroup>
+            <thead><tr>
+              <th scope="col">圈组信息</th><th scope="col">圈选条件</th><th scope="col" class="shop-count-cell">店铺数</th>
+              <th scope="col" class="auto-policy-cell">自动维护</th><th scope="col">待处理</th><th scope="col">状态</th>
+              <th scope="col">维护信息</th><th scope="col">操作</th>
+            </tr></thead>
+            <tbody id="group-rows"></tbody>
+          </table>
+        </div>
+        <footer class="panel-footer">
+          <p id="list-feedback" class="feedback" role="status"></p>
+          <div class="pagination">
+            <label class="field page-size">每页<select id="group-page-size"><option>10</option><option selected>20</option><option>50</option></select></label>
+            <button class="button" id="group-previous" type="button">上一页</button>
+            <span id="group-page" aria-live="polite"></span>
+            <button class="button" id="group-next" type="button">下一页</button>
+          </div>
+        </footer>
+      </section>
+    </section>
+    <section id="detail-view" aria-labelledby="detail-title" hidden></section>
+  </main>
+
+  <dialog id="editor-dialog" class="business-dialog wide-editor" aria-labelledby="editor-title"></dialog>
+  <dialog id="configure-dialog" class="business-dialog configure-dialog" aria-labelledby="configure-title"></dialog>
+  <dialog id="history-dialog" class="business-dialog history-dialog" aria-labelledby="history-title"></dialog>
+  <dialog id="confirm-dialog" class="business-dialog" aria-labelledby="confirm-title"></dialog>
+  <dialog id="result-dialog" class="business-dialog configure-dialog" aria-labelledby="result-title"></dialog>
+</body>
+</html>

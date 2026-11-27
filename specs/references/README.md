@@ -8,4 +8,4 @@
 |[03-detail.svg](../../docs/assets/references/03-detail.svg)|详情与候选|置顶提醒、保护状态、批量范围|
 |[04-configure.svg](../../docs/assets/references/04-configure.svg)|配置店铺|新增/删除单选、多行ID、校验及二次确认|
 |[05-history.svg](../../docs/assets/references/05-history.svg)|历史记录|配置前后值、系统/人工进出记录|
-设计入口：docs/index.html。下一阶段将其保留为design-preview.html，再实现业务入口。
+五张参考图可在 [设计预览](../../docs/design-preview.html) 查看。圈组交互从 [业务入口](../../docs/index.html) 打开。
