@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>组件库 · 电商管理后台</title>
+  <link rel="stylesheet" href="./styles.css">
+  <script src="./app.js" defer></script>
+</head>
+<body>
+  <header class="masthead">
+    <div class="container masthead-content">
+      <span class="workspace-name">电商管理后台</span>
+      <nav class="top-nav" aria-label="顶部导航">
+        <a href="./index.html">工作台</a>
+        <a href="#workspace" aria-current="page">组件库</a>
+      </nav>
+    </div>
+  </header>
+
+  <div class="container workspace workspace-with-sidebar">
+    <aside class="panel sidebar">
+      <nav aria-label="组件导航">
+        <a href="#basics">按钮和标签</a>
+        <a href="#records">筛选和列表</a>
+        <a href="#examples">提示和状态</a>
+      </nav>
+    </aside>
+
+    <main id="workspace" tabindex="-1">
+      <nav class="breadcrumb" aria-label="面包屑">
+        <ol>
+          <li><a href="./index.html">工作台</a></li>
+          <li aria-current="page">组件库</li>
+        </ol>
+      </nav>
+      <div class="page-heading"><h1>组件库</h1></div>
+
+      <div class="component-stack">
+        <section id="basics" class="panel" aria-labelledby="basics-heading">
+          <div class="panel-header">
+            <h2 id="basics-heading">按钮和标签</h2>
+          </div>
+          <div class="component-body">
+            <div class="actions" aria-label="按钮示例">
+              <button id="add-record" class="button button-primary" type="button">新增记录</button>
+              <button id="reset-records" class="button button-secondary" type="button">重置示例</button>
+              <button id="open-drawer" class="button button-text" type="button">查看组件说明</button>
+              <button id="delete-selected" class="button button-danger" type="button" aria-describedby="selection-count" disabled>删除所选</button>
+              <span id="selection-count" class="count" role="status">已选 0 条</span>
+            </div>
+            <div class="actions" aria-label="状态标签">
+              <span class="badge badge-active">启用</span>
+              <span class="badge badge-pending">待处理</span>
+              <span class="badge badge-inactive">停用</span>
+            </div>
+          </div>
+        </section>
+
+        <section id="records" class="panel" aria-labelledby="records-heading">
+          <div class="panel-header">
+            <div class="section-title">
+              <h2 id="records-heading">筛选和列表</h2>
+              <span id="record-count" class="count" aria-live="polite"></span>
+            </div>
+          </div>
+          <form id="filters" class="filters" aria-label="筛选记录">
+            <div class="filter-grid">
+              <label class="field" for="record-search">
+                记录名称
+                <input id="record-search" type="search" placeholder="输入记录名称">
+              </label>
+              <label class="field" for="status-filter">
+                状态
+                <select id="status-filter">
+                  <option value="">全部状态</option>
+                </select>
+              </label>
+            </div>
+            <div class="filter-actions">
+              <button class="button button-secondary" type="reset">清除筛选</button>
+            </div>
+            <details class="more-filters">
+              <summary>更多筛选<span id="extra-filter-state"></span></summary>
+              <div class="filter-grid">
+                <label class="field" for="description-filter">
+                  说明关键词
+                  <input id="description-filter" type="search" placeholder="输入说明关键词">
+                </label>
+              </div>
+            </details>
+          </form>
+
+          <div class="table-scroll" role="region" aria-label="记录列表数据" tabindex="0">
+            <table aria-labelledby="records-heading">
+              <thead>
+                <tr>
+                  <th class="selection-cell" scope="col"><input id="select-page" type="checkbox" aria-label="全选本页记录"></th>
+                  <th scope="col" class="name-column">记录名称</th>
+                  <th scope="col">说明</th>
+                  <th scope="col" class="status-column">状态</th>
+                  <th scope="col" class="action-cell">操作</th>
+                </tr>
+              </thead>
+              <tbody id="record-rows"></tbody>
+            </table>
+          </div>
+
+          <div class="panel-footer">
+            <p id="feedback" class="feedback" role="status"></p>
+            <nav class="pagination" aria-label="记录分页">
+              <button id="previous-page" class="button button-secondary" type="button">上一页</button>
+              <span id="page-position" aria-live="polite"></span>
+              <button id="next-page" class="button button-secondary" type="button">下一页</button>
+            </nav>
+          </div>
+        </section>
+
+        <section id="examples" class="panel" aria-labelledby="examples-heading">
+          <div class="panel-header">
+            <h2 id="examples-heading">提示和状态</h2>
+          </div>
+          <div class="component-body">
+            <div class="actions" id="example-actions">
+              <button class="button button-secondary" type="button" data-message="success">成功提示</button>
+              <button class="button button-secondary" type="button" data-message="error">失败提示</button>
+              <button class="button button-secondary" type="button" data-message="warning">警告提示</button>
+              <button id="show-empty" class="button button-text" type="button">查看空状态</button>
+              <button id="show-loading" class="button button-text" type="button">模拟加载</button>
+            </div>
+            <p id="example-result" class="example-result" role="status">请选择要查看的提示或状态。</p>
+          </div>
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <template id="record-row">
+    <tr>
+      <td class="selection-cell"><input type="checkbox" data-select-record></td>
+      <td><span class="record-name"></span><span class="record-id"></span></td>
+      <td class="record-description"></td>
+      <td><span class="badge"></span></td>
+      <td class="action-cell">
+        <div class="actions">
+          <button class="button button-edit" type="button" data-action="edit">编辑</button>
+          <button class="button button-delete" type="button" data-action="delete">删除</button>
+        </div>
+      </td>
+    </tr>
+  </template>
+
+  <dialog id="edit-dialog" aria-labelledby="edit-heading">
+    <form id="edit-form">
+      <div class="dialog-heading">
+        <h2 id="edit-heading">编辑记录</h2>
+      </div>
+      <div class="form-fields">
+        <label class="field" for="edit-name">
+          记录名称
+          <input id="edit-name" name="name" required maxlength="60" autofocus>
+        </label>
+        <label class="field" for="edit-status">
+          状态
+          <select id="edit-status" name="status" required></select>
+        </label>
+        <label class="field field-wide" for="edit-description">
+          说明
+          <textarea id="edit-description" name="description" rows="3" maxlength="120"></textarea>
+        </label>
+        <p id="form-error" class="field-wide feedback feedback-error" role="alert"></p>
+      </div>
+      <div class="dialog-actions">
+        <button id="cancel-edit" class="button button-secondary" type="button">取消</button>
+        <button class="button button-primary" type="submit">保存</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="confirm-dialog" aria-labelledby="confirm-heading" aria-describedby="confirm-message confirm-warning">
+    <form method="dialog">
+      <div class="dialog-heading">
+        <h2 id="confirm-heading">删除记录</h2>
+      </div>
+      <div class="confirm-body">
+        <p id="confirm-message"></p>
+        <p id="confirm-warning" class="feedback feedback-warning">删除后，本次会话中无法恢复。</p>
+      </div>
+      <div class="dialog-actions">
+        <button class="button button-secondary" type="submit" value="cancel" autofocus>取消</button>
+        <button id="confirm-delete" class="button button-danger" type="button">确认删除</button>
+      </div>
+    </form>
+  </dialog>
+  <dialog id="component-drawer" class="side-drawer" aria-labelledby="drawer-heading">
+    <div class="dialog-heading">
+      <h2 id="drawer-heading">组件使用说明</h2>
+    </div>
+    <div class="confirm-body">
+      <p>列表支持跨页选择，表头复选框仅作用于当前页。更改筛选条件会清除选择。</p>
+      <p>编辑、删除和重置只影响本页的示例数据，刷新可恢复初始内容。</p>
+    </div>
+    <form class="dialog-actions" method="dialog">
+      <button class="button button-secondary" type="submit" autofocus>关闭</button>
+    </form>
+  </dialog>
+</body>
+</html>

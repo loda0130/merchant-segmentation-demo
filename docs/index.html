@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>电商管理后台</title>
+  <link rel="stylesheet" href="./styles.css">
+  <script src="./app.js" defer></script>
+</head>
+<body>
+  <header class="masthead">
+    <div class="container masthead-content">
+      <span class="workspace-name">电商管理后台</span>
+      <nav class="top-nav" aria-label="顶部导航">
+        <a href="#workspace" aria-current="page">工作台</a>
+        <a href="./components.html">组件库</a>
+      </nav>
+    </div>
+  </header>
+
+  <div class="container workspace">
+    <main id="workspace" tabindex="-1">
+      <div class="page-context">
+        <nav class="breadcrumb" aria-label="面包屑">
+          <ol>
+            <li>电商管理后台</li>
+            <li aria-current="page">工作台</li>
+          </ol>
+        </nav>
+        <nav class="section-nav" aria-label="工作台导航">
+          <a href="#filters">筛选记录</a>
+          <a href="#records">记录列表</a>
+        </nav>
+      </div>
+      <div class="page-heading">
+        <h1>管理工作台</h1>
+        <div class="actions">
+          <button id="add-record" class="button button-primary" type="button">新增记录</button>
+        </div>
+      </div>
+
+      <form id="filters" class="panel filters" aria-label="筛选记录">
+        <div class="filter-grid">
+          <label class="field" for="record-search">
+            记录名称
+            <input id="record-search" type="search" placeholder="输入记录名称">
+          </label>
+          <label class="field" for="status-filter">
+            状态
+            <select id="status-filter">
+              <option value="">全部状态</option>
+            </select>
+          </label>
+        </div>
+        <div class="filter-actions">
+          <button class="button button-secondary" type="reset">清除筛选</button>
+        </div>
+      </form>
+
+      <section id="records" class="panel" aria-labelledby="records-heading">
+        <div class="panel-header">
+          <div class="section-title">
+            <h2 id="records-heading">记录列表</h2>
+            <span id="record-count" class="count" aria-live="polite"></span>
+          </div>
+        </div>
+
+        <div class="table-scroll" role="region" aria-label="记录列表数据" tabindex="0">
+          <table aria-labelledby="records-heading">
+            <thead>
+              <tr>
+                <th scope="col" class="name-column">记录名称</th>
+                <th scope="col">说明</th>
+                <th scope="col" class="status-column">状态</th>
+                <th scope="col" class="action-cell">操作</th>
+              </tr>
+            </thead>
+            <tbody id="record-rows"></tbody>
+          </table>
+        </div>
+
+        <div class="panel-footer">
+          <p id="feedback" class="feedback" role="status"></p>
+          <nav class="pagination" aria-label="记录分页">
+            <button id="previous-page" class="button button-secondary" type="button">上一页</button>
+            <span id="page-position" aria-live="polite"></span>
+            <button id="next-page" class="button button-secondary" type="button">下一页</button>
+          </nav>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <template id="record-row">
+    <tr>
+      <td><span class="record-name"></span><span class="record-id"></span></td>
+      <td class="record-description"></td>
+      <td><span class="badge"></span></td>
+      <td class="action-cell">
+        <div class="actions">
+          <button class="button button-edit" type="button" data-action="edit">编辑</button>
+          <button class="button button-delete" type="button" data-action="delete">删除</button>
+        </div>
+      </td>
+    </tr>
+  </template>
+
+  <dialog id="edit-dialog" aria-labelledby="edit-heading">
+    <form id="edit-form">
+      <div class="dialog-heading">
+        <h2 id="edit-heading">编辑记录</h2>
+      </div>
+      <div class="form-fields">
+        <label class="field" for="edit-name">
+          记录名称
+          <input id="edit-name" name="name" required maxlength="60" autofocus>
+        </label>
+        <label class="field" for="edit-status">
+          状态
+          <select id="edit-status" name="status" required></select>
+        </label>
+        <label class="field field-wide" for="edit-description">
+          说明
+          <textarea id="edit-description" name="description" rows="3" maxlength="120"></textarea>
+        </label>
+        <p id="form-error" class="field-wide feedback feedback-error" role="alert"></p>
+      </div>
+      <div class="dialog-actions">
+        <button id="cancel-edit" class="button button-secondary" type="button">取消</button>
+        <button class="button button-primary" type="submit">保存</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="confirm-dialog" aria-labelledby="confirm-heading" aria-describedby="confirm-message confirm-warning">
+    <form method="dialog">
+      <div class="dialog-heading">
+        <h2 id="confirm-heading">删除记录</h2>
+      </div>
+      <div class="confirm-body">
+        <p id="confirm-message"></p>
+        <p id="confirm-warning" class="feedback feedback-warning">删除后，本次会话中无法恢复。</p>
+      </div>
+      <div class="dialog-actions">
+        <button class="button button-secondary" type="submit" value="cancel" autofocus>取消</button>
+        <button id="confirm-delete" class="button button-danger" type="button">确认删除</button>
+      </div>
+    </form>
+  </dialog>
+</body>
+</html>

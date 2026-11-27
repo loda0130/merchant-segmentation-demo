@@ -1,0 +1,33 @@
+# 系统文件
+.DS_Store
+Thumbs.db
+
+# 本地环境与依赖
+.env
+.env.*
+node_modules/
+
+# 日志与临时文件
+*.log
+logs/
+*.tmp
+*.temp
+*.swp
+*.swo
+*.bak
+*~
+.tmp/
+tmp/
+temp/
+
+# 密钥与本地凭据
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
+id_rsa
+id_ed25519
+secrets/
+credentials.local.*
